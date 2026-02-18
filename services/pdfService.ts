@@ -11,17 +11,20 @@ export const extractTextFromPdf = async (file: File): Promise<string[]> => {
       try {
         // @ts-ignore - pdfjsLib is global from CDN
         const pdf = await pdfjsLib.getDocument(typedarray).promise;
-        const pages: string[] = [];
-
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
+        
+        // Create an array of promises to extract text from ALL pages in parallel
+        const pagePromises = Array.from({ length: pdf.numPages }, async (_, i) => {
+          const pageNum = i + 1;
+          const page = await pdf.getPage(pageNum);
           const textContent = await page.getTextContent();
           
           // Simple text extraction - joining items with space
           const pageText = textContent.items.map((item: any) => item.str).join(' ');
-          // Add page number marker to help AI context
-          pages.push(`--- PAGE ${i} ---\n${pageText}`);
-        }
+          return `--- PAGE ${pageNum} ---\n${pageText}`;
+        });
+
+        // Wait for all pages to be extracted simultaneously
+        const pages = await Promise.all(pagePromises);
 
         resolve(pages);
       } catch (error) {
