@@ -1,25 +1,39 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Recipe } from "../types";
 
-// Safe env access
 const getApiKey = () => {
-  // @ts-ignore
-  if (typeof import.meta !== 'undefined' && import.meta.env) {
+  let key = undefined;
+  
+  // Try Vite
+  try {
     // @ts-ignore
-    const key = import.meta.env.VITE_API_KEY || import.meta.env.API_KEY;
-    if (key) return key;
+    if (import.meta && import.meta.env) {
+      // @ts-ignore
+      key = import.meta.env.VITE_API_KEY || import.meta.env.API_KEY;
+    }
+  } catch (e) {}
+
+  // Try Process
+  if (!key) {
+    try {
+      // @ts-ignore
+      if (typeof process !== 'undefined' && process.env) {
+        // @ts-ignore
+        key = process.env.API_KEY || process.env.REACT_APP_API_KEY;
+      }
+    } catch(e) {}
   }
-  // @ts-ignore
-  if (typeof process !== 'undefined' && process.env) {
-    // @ts-ignore
-    return process.env.API_KEY || process.env.REACT_APP_API_KEY;
-  }
-  return undefined;
+  
+  return key;
 }
 
 const initGemini = () => {
   const apiKey = getApiKey();
-  if (!apiKey) throw new Error("API Key not found. Please configure VITE_API_KEY or API_KEY in your environment.");
+  if (!apiKey) {
+    console.error("Gemini API Key missing. Please set VITE_API_KEY.");
+    // Return a dummy object or throw, but throwing is better to alert the user
+    throw new Error("API Key not configured");
+  }
   return new GoogleGenAI({ apiKey });
 };
 
@@ -33,23 +47,22 @@ const processChunk = async (textChunk: string, ai: GoogleGenAI): Promise<Recipe[
         items: {
           type: Type.OBJECT,
           properties: {
-            lesson_name: { type: Type.STRING, description: "Name of the lesson, e.g., 'Aula 05 - Bolos'. If missing, use empty string." },
-            title: { type: Type.STRING, description: "The clear, capitalized title of the recipe." },
+            lesson_name: { type: Type.STRING, description: "Name of the lesson. If missing, use empty string." },
+            title: { type: Type.STRING, description: "Title of the recipe." },
             ingredients: {
               type: Type.ARRAY,
-              description: "Ingredients grouped by section (e.g. 'Massa', 'Recheio'). If no sections exist, use 'Principal'.",
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  sectionName: { type: Type.STRING, description: "Title of the section (e.g., 'Massa', 'Calda')" },
+                  sectionName: { type: Type.STRING },
                   items: {
                     type: Type.ARRAY,
                     items: {
                       type: Type.OBJECT,
                       properties: {
-                        name: { type: Type.STRING, description: "Ingredient name ONLY (e.g. 'Farinha de Trigo')" },
-                        qty: { type: Type.STRING, description: "Numeric quantity (e.g. '200', '1/2'). Empty if none." },
-                        unit: { type: Type.STRING, description: "Unit (e.g. 'g', 'ml', 'xícara'). Empty if none." }
+                        name: { type: Type.STRING },
+                        qty: { type: Type.STRING },
+                        unit: { type: Type.STRING }
                       }
                     }
                   }
@@ -58,7 +71,6 @@ const processChunk = async (textChunk: string, ai: GoogleGenAI): Promise<Recipe[
             },
             steps: {
               type: Type.ARRAY,
-              description: "Step-by-step instructions. Break long paragraphs into individual steps.",
               items: { type: Type.STRING }
             }
           }
@@ -68,25 +80,9 @@ const processChunk = async (textChunk: string, ai: GoogleGenAI): Promise<Recipe[
   };
 
   const prompt = `
-    You are a professional cookbook editor. Your task is to EXTRACT, CLEAN, and ORGANIZE recipes from raw PDF text.
-
-    RAW TEXT:
-    ${textChunk}
-
-    STRICT GUIDELINES:
-    1. **Clean Data**: Remove artifacts like "Page 1", "www.site.com", header/footers, or random dividers.
-    2. **Titles**: Ensure the recipe title is proper Title Case (e.g., "Bolo de Cenoura" not "BOLO DE CENOURA").
-    3. **Ingredients**: 
-       - Separate the Quantity, Unit, and Name properly.
-       - Example input: "200g de farinha" -> qty: "200", unit: "g", name: "farinha".
-       - Example input: "1 xícara de açúcar" -> qty: "1", unit: "xícara", name: "açúcar".
-       - Group them logically. If the text says "Massa:" followed by ingredients, put them in a "Massa" section.
-    4. **Steps**:
-       - Do NOT return one huge paragraph. Split instructions into logical, sequential steps.
-       - Remove numbering from the text itself (e.g., remove "1.", "2.") as the UI handles that.
-       - Fix broken sentences caused by PDF line breaks.
-
-    Return ONLY JSON.
+    Extract recipes from this text.
+    TEXT: ${textChunk}
+    Clean the data. Return JSON.
   `;
 
   try {
@@ -103,26 +99,21 @@ const processChunk = async (textChunk: string, ai: GoogleGenAI): Promise<Recipe[
     const result = JSON.parse(response.text || '{}');
     const rawRecipes = result.recipes || [];
 
-    // Sanitize data to ensure arrays exist
     return rawRecipes.map((r: any) => ({
       lesson_name: r.lesson_name || "",
       title: r.title || "Receita Sem Nome",
-      ingredients: Array.isArray(r.ingredients) ? r.ingredients.map((s: any) => ({
-        sectionName: s.sectionName || "Ingredientes",
-        items: Array.isArray(s.items) ? s.items : []
-      })) : [],
+      ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
       steps: Array.isArray(r.steps) ? r.steps : [],
     }));
 
   } catch (error) {
     console.warn("Chunk processing warning:", error);
-    return []; // Return empty array on chunk error to not fail entire process
+    return [];
   }
 };
 
 export const parseRecipesFromPages = async (pages: string[]): Promise<Recipe[]> => {
   const ai = initGemini();
-
   const CHUNK_SIZE = 2; 
   const chunks: string[] = [];
 
@@ -134,21 +125,9 @@ export const parseRecipesFromPages = async (pages: string[]): Promise<Recipe[]> 
     const promiseResults = await Promise.all(
       chunks.map(chunk => processChunk(chunk, ai))
     );
-
-    const allRecipes = promiseResults.flat();
-    const uniqueRecipes = Array.from(new Map(allRecipes.map(item => [item.title, item])).values());
-
-    return uniqueRecipes;
-
+    return promiseResults.flat();
   } catch (error: any) {
-    console.error("Gemini Parallel Extraction Error:", error);
-    
-    let errorMessage = "Failed to process recipes.";
-    if (error.message?.includes("404")) {
-      errorMessage = "AI Model unavailable.";
-    } else if (error.message?.includes("429")) {
-      errorMessage = "Too many requests. Please wait a moment.";
-    }
-    throw new Error(errorMessage);
+    console.error("Gemini Extraction Error:", error);
+    throw new Error("Failed to process recipes with AI.");
   }
 };

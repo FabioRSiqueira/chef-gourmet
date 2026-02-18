@@ -1,42 +1,44 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Recipe } from '../types';
 
-// Helper to safely access environment variables without crashing in browser
+// Robust environment variable accessor
 const getEnv = (key: string) => {
-  // Check for Vite injected env vars
-  // @ts-ignore
-  if (typeof import.meta !== 'undefined' && import.meta.env) {
+  let val = undefined;
+  
+  // 1. Try Vite's import.meta.env
+  try {
     // @ts-ignore
-    const val = import.meta.env[key] || import.meta.env[`VITE_${key}`];
-    if (val) return val;
+    if (import.meta && import.meta.env) {
+      // @ts-ignore
+      val = import.meta.env[key] || import.meta.env[`VITE_${key}`];
+    }
+  } catch (e) {}
+
+  // 2. Try Node's process.env (or our polyfill)
+  if (!val) {
+    try {
+      // @ts-ignore
+      if (typeof process !== 'undefined' && process.env) {
+        // @ts-ignore
+        val = process.env[key] || process.env[`REACT_APP_${key}`];
+      }
+    } catch (e) {}
   }
   
-  // Check for process.env (Node/Polyfill)
-  // @ts-ignore
-  if (typeof process !== 'undefined' && process.env) {
-    // @ts-ignore
-    return process.env[key] || process.env[`REACT_APP_${key}`];
-  }
-
-  return undefined;
+  return val;
 };
 
 // Singleton instance
 let supabaseInstance: SupabaseClient | null = null;
-let hasTriedInit = false;
 
 const getSupabase = (): SupabaseClient | null => {
   if (supabaseInstance) return supabaseInstance;
-  if (hasTriedInit) return null; // Prevent repeated retry spam
 
-  hasTriedInit = true;
-  
   const url = getEnv('SUPABASE_URL') || "https://sczmttadkjgqrfsbppaj.supabase.co";
   const key = getEnv('SUPABASE_ANON_KEY') || "sb_publishable_ABegr6YyTLvtH_WxVrHI0g_BB4E1kRE";
 
-  // Basic validation to prevent immediate crash on invalid URL
   if (!url || !url.startsWith('http') || !key) {
-    console.warn("Invalid Supabase credentials. Running in LocalStorage mode.");
+    console.warn("Supabase not configured. Using LocalStorage.");
     return null;
   }
 
@@ -44,18 +46,19 @@ const getSupabase = (): SupabaseClient | null => {
     supabaseInstance = createClient(url, key);
     return supabaseInstance;
   } catch (error) {
-    console.warn("Failed to initialize Supabase client:", error);
+    console.warn("Failed to initialize Supabase:", error);
     return null;
   }
 };
 
 const LOCAL_STORAGE_KEY = 'chefshelf_recipes';
 
-// Helper for ID generation
 const generateId = () => {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+  } catch(e) {}
   return Math.random().toString(36).substring(2) + Date.now().toString(36);
 };
 
@@ -63,37 +66,35 @@ export const saveRecipes = async (recipes: Recipe[]): Promise<boolean> => {
   const supabase = getSupabase();
   let savedToCloud = false;
 
-  // 1. Try Supabase if available
+  // 1. Try Supabase
   if (supabase) {
     try {
       const { error } = await supabase.from('recipes').insert(recipes);
       if (!error) savedToCloud = true;
-      else console.warn("Supabase insert failed:", error);
+      else console.warn("Supabase insert error:", error);
     } catch (err) {
-      console.warn("Supabase connection failed:", err);
+      console.warn("Supabase connection error:", err);
     }
   }
 
-  // 2. Always save to Local Storage as backup/primary
+  // 2. Always save to Local Storage
   try {
     const existingStr = localStorage.getItem(LOCAL_STORAGE_KEY);
     const existing: Recipe[] = existingStr ? JSON.parse(existingStr) : [];
     
-    // Add IDs and dates if missing
     const newRecipes = recipes.map(r => ({
       ...r,
       id: r.id || generateId(),
       created_at: r.created_at || new Date().toISOString()
     }));
     
+    // Simple deduplication by title/lesson
     const updated = [...newRecipes, ...existing];
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
     return true;
   } catch (e) {
-    console.error("Local storage save failed:", e);
-    // If we managed to save to cloud but not local, return true anyway
-    if (savedToCloud) return true;
-    throw new Error("Failed to save recipes.");
+    console.error("Local storage failed:", e);
+    return savedToCloud;
   }
 };
 
@@ -113,28 +114,29 @@ export const getRecipes = async (search?: string): Promise<Recipe[]> => {
       const result = await query;
       if (!result.error) {
         data = result.data as Recipe[];
-      } else {
-        console.warn("Supabase fetch error:", result.error);
       }
     } catch (error) {
-      console.error("Supabase request failed:", error);
+      // Silent fail to fallback
     }
   }
 
-  // 2. Fallback to LocalStorage if Supabase failed or returned nothing
+  // 2. Fallback to LocalStorage
   if (!data) {
-    console.info("Using LocalStorage fallback for recipes.");
-    const existingStr = localStorage.getItem(LOCAL_STORAGE_KEY);
-    let allRecipes: Recipe[] = existingStr ? JSON.parse(existingStr) : [];
-    
-    if (search) {
-      const lowerSearch = search.toLowerCase();
-      allRecipes = allRecipes.filter(r => 
-        (r.title && r.title.toLowerCase().includes(lowerSearch)) || 
-        (r.lesson_name && r.lesson_name.toLowerCase().includes(lowerSearch))
-      );
+    try {
+      const existingStr = localStorage.getItem(LOCAL_STORAGE_KEY);
+      let allRecipes: Recipe[] = existingStr ? JSON.parse(existingStr) : [];
+      
+      if (search) {
+        const lowerSearch = search.toLowerCase();
+        allRecipes = allRecipes.filter(r => 
+          (r.title && r.title.toLowerCase().includes(lowerSearch)) || 
+          (r.lesson_name && r.lesson_name.toLowerCase().includes(lowerSearch))
+        );
+      }
+      return allRecipes;
+    } catch (e) {
+      return [];
     }
-    return allRecipes;
   }
 
   return data || [];
