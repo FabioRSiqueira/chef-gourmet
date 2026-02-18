@@ -125,7 +125,7 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({ recipe, onClose }) => 
         
         {/* Footer info */}
         <div className="bg-gray-50 border-t border-gray-200 px-6 py-3 text-center">
-             <p className="text-xs text-gray-400">Extraído via Gemini AI • ChefShelf</p>
+             <p className="text-xs text-gray-400"></p>
         </div>
       </div>
     </div>
