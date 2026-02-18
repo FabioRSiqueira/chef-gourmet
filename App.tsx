@@ -35,7 +35,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 <div className="bg-chef-red p-1.5 rounded-lg">
                   <ChefHat className="w-6 h-6 text-white" />
                 </div>
-                <span className="font-serif font-bold text-xl text-gray-900 tracking-tight">ChefShelf</span>
+                <span className="font-serif font-bold text-xl text-gray-900 tracking-tight">Siqueira Chef</span>
               </Link>
             </div>
             

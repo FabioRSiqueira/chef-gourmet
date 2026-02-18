@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ChefShelf - Intelligent Recipe Manager</title>
+    <script>
+      // Critical fix for Vercel/Vite production builds:
+      // Polyfill 'process' to avoid "ReferenceError: process is not defined"
+      window.process = window.process || { env: {} };
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- PDF.js for text extraction -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -41,5 +46,7 @@
 </head>
   <body class="bg-gray-50 text-slate-800 antialiased">
     <div id="root"></div>
+    <!-- Attempt to load index.tsx if utilizing a build system that expects it in source -->
+    <!-- Note: In a pure static deploy without build, you may need to point this to your built js file -->
   </body>
 </html>

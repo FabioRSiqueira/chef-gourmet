@@ -1,9 +1,24 @@
 import { createClient } from '@supabase/supabase-js';
 import { Recipe } from '../types';
 
+// Helper to safely access environment variables without crashing in browser
+const getEnv = (key: string) => {
+  // @ts-ignore
+  if (typeof process !== 'undefined' && process.env) {
+    // @ts-ignore
+    return process.env[key];
+  }
+  // @ts-ignore
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
+    // @ts-ignore
+    return import.meta.env[key] || import.meta.env[`VITE_${key}`];
+  }
+  return undefined;
+};
+
 // Supabase Configuration
-const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || process.env.SUPABASE_URL || "https://sczmttadkjgqrfsbppaj.supabase.co";
-const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "sb_publishable_ABegr6YyTLvtH_WxVrHI0g_BB4E1kRE";
+const SUPABASE_URL = getEnv('REACT_APP_SUPABASE_URL') || getEnv('SUPABASE_URL') || "https://sczmttadkjgqrfsbppaj.supabase.co";
+const SUPABASE_KEY = getEnv('REACT_APP_SUPABASE_ANON_KEY') || getEnv('SUPABASE_ANON_KEY') || "sb_publishable_ABegr6YyTLvtH_WxVrHI0g_BB4E1kRE";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const LOCAL_STORAGE_KEY = 'chefshelf_recipes';
