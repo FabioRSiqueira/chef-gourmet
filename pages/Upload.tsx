@@ -43,17 +43,18 @@ export const Upload: React.FC = () => {
 
     setIsProcessing(true);
     setError(null);
-    setStatus('Iniciando processamento paralelo...');
+    setStatus('Iniciando...');
     
-    // We use a mutable array to collect results from concurrent operations
     const allRecipes: Recipe[] = [];
-    let completedFiles = 0;
 
     try {
-      // Create a promise for each file to process them simultaneously
-      const filePromises = files.map(async (file) => {
+      // Process files concurrently
+      const filePromises = files.map(async (file, idx) => {
+        const filePrefix = files.length > 1 ? `[Arq ${idx + 1}] ` : '';
+
         try {
           // 1. Extract Text
+          setStatus(`${filePrefix}Lendo PDF...`);
           const pages = await extractTextFromPdf(file);
           
           if (!pages || pages.length === 0) {
@@ -61,26 +62,23 @@ export const Upload: React.FC = () => {
             return;
           }
 
-          // 2. AI Parsing
-          const recipes = await parseRecipesFromPages(pages);
+          // 2. AI Parsing with progress callback
+          const recipes = await parseRecipesFromPages(pages, (msg) => {
+            setStatus(`${filePrefix}${msg}`);
+          });
           
           if (recipes.length > 0) {
             allRecipes.push(...recipes);
           }
           
-          completedFiles++;
-          setStatus(`Processando arquivos... (${completedFiles}/${files.length} concluídos)`);
-
         } catch (innerErr) {
           console.error(`Error processing file ${file.name}:`, innerErr);
-          // If it's an API Key error, throw immediately to stop everything
           if (innerErr instanceof Error && innerErr.message.includes("API Key")) {
             throw innerErr;
           }
         }
       });
 
-      // Wait for ALL files to finish
       await Promise.all(filePromises);
 
       if (allRecipes.length === 0) {
@@ -90,13 +88,12 @@ export const Upload: React.FC = () => {
       setExtractedCount(allRecipes.length);
       
       // 3. Save to DB
-      setStatus(`Salvando ${allRecipes.length} receitas encontradas...`);
+      setStatus(`Salvando ${allRecipes.length} receitas...`);
       await saveRecipes(allRecipes);
       
       setStatus('Concluído!');
       setIsProcessing(false);
       
-      // Navigate to library after short delay
       setTimeout(() => {
         navigate('/');
       }, 2000);

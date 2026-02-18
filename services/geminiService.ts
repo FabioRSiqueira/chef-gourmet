@@ -50,8 +50,8 @@ const processChunk = async (textChunk: string, ai: GoogleGenAI): Promise<Recipe[
         items: {
           type: Type.OBJECT,
           properties: {
-            lesson_name: { type: Type.STRING, description: "Name of the lesson. If missing, use empty string." },
-            title: { type: Type.STRING, description: "Title of the recipe." },
+            lesson_name: { type: Type.STRING, description: "Lesson name" },
+            title: { type: Type.STRING, description: "Recipe title" },
             ingredients: {
               type: Type.ARRAY,
               items: {
@@ -82,10 +82,9 @@ const processChunk = async (textChunk: string, ai: GoogleGenAI): Promise<Recipe[
     }
   };
 
-  // Optimized prompt for speed
+  // Highly optimized prompt for speed
   const prompt = `
-    You are a fast recipe parser. Extract recipes from the provided text into JSON.
-    Ignore non-recipe text.
+    Extract recipes to JSON.
     TEXT: ${textChunk}
   `;
 
@@ -116,18 +115,20 @@ const processChunk = async (textChunk: string, ai: GoogleGenAI): Promise<Recipe[
   }
 };
 
-export const parseRecipesFromPages = async (pages: string[]): Promise<Recipe[]> => {
+export const parseRecipesFromPages = async (
+  pages: string[], 
+  onProgress?: (status: string) => void
+): Promise<Recipe[]> => {
   const ai = initGemini();
   
   if (!ai) {
     throw new Error("Gemini API Key is missing. Please set 'VITE_API_KEY' in your Vercel Environment Variables.");
   }
 
-  // MASSIVE PERFORMANCE BOOST:
-  // Gemini 3 Flash has a huge context window (1M+ tokens).
-  // 50 pages is approx 20k-30k tokens, which is extremely fast for this model.
-  // This reduces HTTP round-trips significantly (e.g., a 40-page PDF becomes 1 request instead of 20).
-  const CHUNK_SIZE = 50; 
+  // INCREASED CHUNK SIZE TO 80:
+  // Maximizes context window usage. 
+  // Most PDFs will now be processed in a single API call.
+  const CHUNK_SIZE = 80; 
   const chunks: string[] = [];
 
   for (let i = 0; i < pages.length; i += CHUNK_SIZE) {
@@ -135,9 +136,15 @@ export const parseRecipesFromPages = async (pages: string[]): Promise<Recipe[]> 
   }
 
   try {
-    // Parallel processing of chunks (usually just 1 chunk now)
+    if (onProgress) onProgress(`Analisando ${chunks.length} parte(s) do documento...`);
+
+    // Parallel processing of chunks
     const promiseResults = await Promise.all(
-      chunks.map(chunk => processChunk(chunk, ai))
+      chunks.map(async (chunk, idx) => {
+        const res = await processChunk(chunk, ai);
+        if (onProgress) onProgress(`Parte ${idx + 1}/${chunks.length} concluída...`);
+        return res;
+      })
     );
     return promiseResults.flat();
   } catch (error: any) {
