@@ -1,5 +1,14 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+
+
+// Double-check polyfill at entry point to ensure it exists before imports execute
+// @ts-ignore
+if (typeof window !== 'undefined' && !window.process) {
+  // @ts-ignore
+  window.process = { env: {} };
+}
+
 import App from './App';
 
 const rootElement = document.getElementById('root');

@@ -6,8 +6,8 @@
     <title>ChefShelf - Intelligent Recipe Manager</title>
     <script>
       // Critical fix for Vercel/Vite production builds:
-      // Polyfill 'process' to avoid "ReferenceError: process is not defined"
-      window.process = window.process || { env: {} };
+      // Defines 'process' globally before any other script runs.
+      window.process = window.process || { env: { NODE_ENV: 'production' } };
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- PDF.js for text extraction -->
@@ -33,12 +33,12 @@
   <script type="importmap">
 {
   "imports": {
-    "react/": "https://esm.sh/react@^19.2.4/",
     "react": "https://esm.sh/react@^19.2.4",
-    "@google/genai": "https://esm.sh/@google/genai@^1.41.0",
     "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.574.0",
+    "react/": "https://esm.sh/react@^19.2.4/",
     "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.96.0",
+    "@google/genai": "https://esm.sh/@google/genai@^1.41.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.574.0",
     "react-router-dom": "https://esm.sh/react-router-dom@^7.13.0"
   }
 }
@@ -46,7 +46,5 @@
 </head>
   <body class="bg-gray-50 text-slate-800 antialiased">
     <div id="root"></div>
-    <!-- Attempt to load index.tsx if utilizing a build system that expects it in source -->
-    <!-- Note: In a pure static deploy without build, you may need to point this to your built js file -->
   </body>
 </html>
