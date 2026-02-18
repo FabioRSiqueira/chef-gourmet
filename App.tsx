@@ -41,7 +41,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             
             <div className="flex items-center gap-2">
               <NavLink to="/" icon={<Book className="w-4 h-4" />}>
-                Library
+                Livro
               </NavLink>
               <NavLink to="/upload" icon={<PlusCircle className="w-4 h-4" />}>
                 Adicionar receita

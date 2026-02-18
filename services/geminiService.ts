@@ -1,9 +1,25 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Recipe } from "../types";
 
+// Safe env access
+const getApiKey = () => {
+  // @ts-ignore
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
+    // @ts-ignore
+    const key = import.meta.env.VITE_API_KEY || import.meta.env.API_KEY;
+    if (key) return key;
+  }
+  // @ts-ignore
+  if (typeof process !== 'undefined' && process.env) {
+    // @ts-ignore
+    return process.env.API_KEY || process.env.REACT_APP_API_KEY;
+  }
+  return undefined;
+}
+
 const initGemini = () => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("API Key not found");
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error("API Key not found. Please configure VITE_API_KEY or API_KEY in your environment.");
   return new GoogleGenAI({ apiKey });
 };
 
