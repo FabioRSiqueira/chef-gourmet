@@ -43,48 +43,54 @@ export const Upload: React.FC = () => {
 
     setIsProcessing(true);
     setError(null);
+    setStatus('Iniciando processamento paralelo...');
+    
+    // We use a mutable array to collect results from concurrent operations
     const allRecipes: Recipe[] = [];
+    let completedFiles = 0;
 
     try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const progressPrefix = `(${i + 1}/${files.length})`;
-
+      // Create a promise for each file to process them simultaneously
+      const filePromises = files.map(async (file) => {
         try {
           // 1. Extract Text
-          setStatus(`${progressPrefix} Lendo PDF: ${file.name}...`);
           const pages = await extractTextFromPdf(file);
           
           if (!pages || pages.length === 0) {
             console.warn(`Skipping ${file.name}: No text extracted.`);
-            continue;
+            return;
           }
 
           // 2. AI Parsing
-          setStatus(`${progressPrefix} Analisando receitas em ${file.name}...`);
           const recipes = await parseRecipesFromPages(pages);
           
           if (recipes.length > 0) {
             allRecipes.push(...recipes);
           }
+          
+          completedFiles++;
+          setStatus(`Processando arquivos... (${completedFiles}/${files.length} concluídos)`);
+
         } catch (innerErr) {
           console.error(`Error processing file ${file.name}:`, innerErr);
-          // If it's an API Key error, we should stop and alert the user immediately
+          // If it's an API Key error, throw immediately to stop everything
           if (innerErr instanceof Error && innerErr.message.includes("API Key")) {
             throw innerErr;
           }
         }
-      }
+      });
+
+      // Wait for ALL files to finish
+      await Promise.all(filePromises);
 
       if (allRecipes.length === 0) {
-        // If we didn't crash but got 0 recipes, just show a generic error
-        throw new Error("Não foi possível extrair receitas. Verifique se o PDF contém texto selecionável.");
+        throw new Error("Não foi possível extrair receitas. Verifique se os PDFs contêm texto selecionável.");
       }
 
       setExtractedCount(allRecipes.length);
       
       // 3. Save to DB
-      setStatus('Salvando na Biblioteca...');
+      setStatus(`Salvando ${allRecipes.length} receitas encontradas...`);
       await saveRecipes(allRecipes);
       
       setStatus('Concluído!');

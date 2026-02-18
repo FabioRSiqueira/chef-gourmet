@@ -82,10 +82,11 @@ const processChunk = async (textChunk: string, ai: GoogleGenAI): Promise<Recipe[
     }
   };
 
+  // Optimized prompt for speed
   const prompt = `
-    Extract recipes from this text.
+    You are a fast recipe parser. Extract recipes from the provided text into JSON.
+    Ignore non-recipe text.
     TEXT: ${textChunk}
-    Clean the data. Return JSON.
   `;
 
   try {
@@ -122,7 +123,10 @@ export const parseRecipesFromPages = async (pages: string[]): Promise<Recipe[]> 
     throw new Error("Gemini API Key is missing. Please set 'VITE_API_KEY' in your Vercel Environment Variables.");
   }
 
-  const CHUNK_SIZE = 2; 
+  // INCREASED CHUNK SIZE:
+  // Gemini Flash has a massive context window. 
+  // Processing 15 pages at once is much faster than 2 pages due to reduced network latency.
+  const CHUNK_SIZE = 15; 
   const chunks: string[] = [];
 
   for (let i = 0; i < pages.length; i += CHUNK_SIZE) {
@@ -130,6 +134,7 @@ export const parseRecipesFromPages = async (pages: string[]): Promise<Recipe[]> 
   }
 
   try {
+    // Parallel processing of chunks
     const promiseResults = await Promise.all(
       chunks.map(chunk => processChunk(chunk, ai))
     );
