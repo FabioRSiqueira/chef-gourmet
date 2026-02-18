@@ -69,12 +69,16 @@ export const Upload: React.FC = () => {
           }
         } catch (innerErr) {
           console.error(`Error processing file ${file.name}:`, innerErr);
-          // We continue to the next file even if one fails
+          // If it's an API Key error, we should stop and alert the user immediately
+          if (innerErr instanceof Error && innerErr.message.includes("API Key")) {
+            throw innerErr;
+          }
         }
       }
 
       if (allRecipes.length === 0) {
-        throw new Error("Não foi possível extrair receitas de nenhum dos arquivos.");
+        // If we didn't crash but got 0 recipes, just show a generic error
+        throw new Error("Não foi possível extrair receitas. Verifique se o PDF contém texto selecionável.");
       }
 
       setExtractedCount(allRecipes.length);
@@ -93,7 +97,14 @@ export const Upload: React.FC = () => {
 
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "Ocorreu um erro inesperado.");
+      const msg = err.message || "Ocorreu um erro inesperado.";
+      
+      if (msg.includes("API Key")) {
+        setError("Erro de Configuração: Chave da API Gemini não encontrada. No painel do Vercel, certifique-se de que a variável de ambiente se chama 'VITE_API_KEY'.");
+      } else {
+        setError(msg);
+      }
+      
       setIsProcessing(false);
       setStatus('');
     }
@@ -184,7 +195,7 @@ export const Upload: React.FC = () => {
             {error && (
               <div className="bg-red-50 text-red-700 p-4 rounded-lg flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                <p>{error}</p>
+                <p className="text-sm">{error}</p>
               </div>
             )}
 

@@ -1,31 +1,46 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Recipe } from '../types';
 
-// Robust environment variable accessor
-const getEnv = (key: string) => {
-  let val = undefined;
-  
-  // 1. Try Vite's import.meta.env
-  try {
-    // @ts-ignore
-    if (import.meta && import.meta.env) {
-      // @ts-ignore
-      val = import.meta.env[key] || import.meta.env[`VITE_${key}`];
-    }
-  } catch (e) {}
+// Hardcoded fallbacks for demo purposes, but prioritized ENV vars
+const DEFAULT_URL = "https://sczmttadkjgqrfsbppaj.supabase.co";
+const DEFAULT_KEY = "sb_publishable_ABegr6YyTLvtH_WxVrHI0g_BB4E1kRE";
 
-  // 2. Try Node's process.env (or our polyfill)
-  if (!val) {
-    try {
-      // @ts-ignore
-      if (typeof process !== 'undefined' && process.env) {
-        // @ts-ignore
-        val = process.env[key] || process.env[`REACT_APP_${key}`];
-      }
-    } catch (e) {}
+const getEnvUrl = () => {
+  // Static access for bundler replacement
+  // @ts-ignore
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+    // @ts-ignore
+    if ((import.meta as any).env.VITE_SUPABASE_URL) return (import.meta as any).env.VITE_SUPABASE_URL;
+    // @ts-ignore
+    if ((import.meta as any).env.SUPABASE_URL) return (import.meta as any).env.SUPABASE_URL;
   }
-  
-  return val;
+  try {
+    if (typeof process !== 'undefined' && process.env) {
+      if (process.env.VITE_SUPABASE_URL) return process.env.VITE_SUPABASE_URL;
+      if (process.env.SUPABASE_URL) return process.env.SUPABASE_URL;
+      if (process.env.REACT_APP_SUPABASE_URL) return process.env.REACT_APP_SUPABASE_URL;
+    }
+  } catch(e) {}
+  return DEFAULT_URL;
+};
+
+const getEnvKey = () => {
+  // Static access for bundler replacement
+  // @ts-ignore
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+    // @ts-ignore
+    if ((import.meta as any).env.VITE_SUPABASE_ANON_KEY) return (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
+    // @ts-ignore
+    if ((import.meta as any).env.SUPABASE_ANON_KEY) return (import.meta as any).env.SUPABASE_ANON_KEY;
+  }
+  try {
+    if (typeof process !== 'undefined' && process.env) {
+      if (process.env.VITE_SUPABASE_ANON_KEY) return process.env.VITE_SUPABASE_ANON_KEY;
+      if (process.env.SUPABASE_ANON_KEY) return process.env.SUPABASE_ANON_KEY;
+      if (process.env.REACT_APP_SUPABASE_ANON_KEY) return process.env.REACT_APP_SUPABASE_ANON_KEY;
+    }
+  } catch(e) {}
+  return DEFAULT_KEY;
 };
 
 // Singleton instance
@@ -34,11 +49,10 @@ let supabaseInstance: SupabaseClient | null = null;
 const getSupabase = (): SupabaseClient | null => {
   if (supabaseInstance) return supabaseInstance;
 
-  const url = getEnv('SUPABASE_URL') || "https://sczmttadkjgqrfsbppaj.supabase.co";
-  const key = getEnv('SUPABASE_ANON_KEY') || "sb_publishable_ABegr6YyTLvtH_WxVrHI0g_BB4E1kRE";
+  const url = getEnvUrl();
+  const key = getEnvKey();
 
   if (!url || !url.startsWith('http') || !key) {
-    // Just warn, don't crash
     return null;
   }
 

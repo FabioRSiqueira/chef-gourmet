@@ -2,35 +2,39 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Recipe } from "../types";
 
 const getApiKey = () => {
-  let key = undefined;
+  // Vite replaces specific string patterns at build time.
+  // We MUST access these properties directly, not via dynamic keys (e.g. process.env[key]).
   
-  // Try Vite
-  try {
+  // 1. Check for VITE_API_KEY (Standard for Vite)
+  // @ts-ignore
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.VITE_API_KEY) {
     // @ts-ignore
-    if (import.meta && import.meta.env) {
-      // @ts-ignore
-      key = import.meta.env.VITE_API_KEY || import.meta.env.API_KEY;
+    return (import.meta as any).env.VITE_API_KEY;
+  }
+
+  // 2. Check for API_KEY (Fallback)
+  // @ts-ignore
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.API_KEY) {
+    // @ts-ignore
+    return (import.meta as any).env.API_KEY;
+  }
+
+  // 3. Process.env fallback (for some Vercel/Webpack setups)
+  // We use direct access so the bundler can inline the value.
+  try {
+    if (typeof process !== 'undefined' && process.env) {
+      if (process.env.VITE_API_KEY) return process.env.VITE_API_KEY;
+      if (process.env.API_KEY) return process.env.API_KEY;
+      if (process.env.REACT_APP_API_KEY) return process.env.REACT_APP_API_KEY;
     }
   } catch (e) {}
-
-  // Try Process
-  if (!key) {
-    try {
-      // @ts-ignore
-      if (typeof process !== 'undefined' && process.env) {
-        // @ts-ignore
-        key = process.env.API_KEY || process.env.REACT_APP_API_KEY;
-      }
-    } catch(e) {}
-  }
   
-  return key;
+  return undefined;
 }
 
 const initGemini = () => {
   const apiKey = getApiKey();
   if (!apiKey) {
-    // Return null instead of throwing to prevent app crash during module loading/initialization
     return null;
   }
   return new GoogleGenAI({ apiKey });
@@ -115,8 +119,7 @@ export const parseRecipesFromPages = async (pages: string[]): Promise<Recipe[]> 
   const ai = initGemini();
   
   if (!ai) {
-    // Throw error only when the user actually tries to process files
-    throw new Error("Gemini API Key is missing. Please configure VITE_API_KEY in your environment variables.");
+    throw new Error("Gemini API Key is missing. Please set 'VITE_API_KEY' in your Vercel Environment Variables.");
   }
 
   const CHUNK_SIZE = 2; 
