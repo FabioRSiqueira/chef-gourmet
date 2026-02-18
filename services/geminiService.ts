@@ -30,9 +30,8 @@ const getApiKey = () => {
 const initGemini = () => {
   const apiKey = getApiKey();
   if (!apiKey) {
-    console.error("Gemini API Key missing. Please set VITE_API_KEY.");
-    // Return a dummy object or throw, but throwing is better to alert the user
-    throw new Error("API Key not configured");
+    // Return null instead of throwing to prevent app crash during module loading/initialization
+    return null;
   }
   return new GoogleGenAI({ apiKey });
 };
@@ -114,6 +113,12 @@ const processChunk = async (textChunk: string, ai: GoogleGenAI): Promise<Recipe[
 
 export const parseRecipesFromPages = async (pages: string[]): Promise<Recipe[]> => {
   const ai = initGemini();
+  
+  if (!ai) {
+    // Throw error only when the user actually tries to process files
+    throw new Error("Gemini API Key is missing. Please configure VITE_API_KEY in your environment variables.");
+  }
+
   const CHUNK_SIZE = 2; 
   const chunks: string[] = [];
 
@@ -128,6 +133,7 @@ export const parseRecipesFromPages = async (pages: string[]): Promise<Recipe[]> 
     return promiseResults.flat();
   } catch (error: any) {
     console.error("Gemini Extraction Error:", error);
-    throw new Error("Failed to process recipes with AI.");
+    if (error.message.includes("API Key")) throw error;
+    throw new Error("Failed to process recipes with AI. Please try again.");
   }
 };

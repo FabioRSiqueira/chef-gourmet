@@ -1,5 +1,5 @@
 {
-  "name": "ChefShelf",
+  "name": "Chef Siqueira",
   "description": "An intelligent recipe manager that extracts recipes from PDFs using Gemini and stores them for easy access.",
   "requestFramePermissions": []
 }

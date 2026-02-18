@@ -38,7 +38,7 @@ const getSupabase = (): SupabaseClient | null => {
   const key = getEnv('SUPABASE_ANON_KEY') || "sb_publishable_ABegr6YyTLvtH_WxVrHI0g_BB4E1kRE";
 
   if (!url || !url.startsWith('http') || !key) {
-    console.warn("Supabase not configured. Using LocalStorage.");
+    // Just warn, don't crash
     return null;
   }
 
