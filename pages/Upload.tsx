@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Upload as UploadIcon, FileText, CheckCircle, AlertCircle, Loader2, ArrowRight, X, Plus } from 'lucide-react';
 import { extractTextFromPdf } from '../services/pdfService';
-import { parseRecipesFromPages } from '../services/geminiService';
+import { parseRecipesFromPages, getApiKey } from '../services/geminiService';
 import { saveRecipes } from '../services/supabaseService';
 import { Recipe } from '../types';
 import { useNavigate } from 'react-router-dom';
@@ -41,6 +41,13 @@ export const Upload: React.FC = () => {
   const processFiles = async () => {
     if (files.length === 0) return;
 
+    // 0. Pre-flight check for API Key
+    const key = getApiKey();
+    if (!key) {
+        setError("Erro de Configuração: API Key não encontrada. Adicione 'VITE_GEMINI_API_KEY' nas variáveis de ambiente do Vercel.");
+        return;
+    }
+
     setIsProcessing(true);
     setError(null);
     setStatus('Iniciando...');
@@ -49,7 +56,7 @@ export const Upload: React.FC = () => {
     let hasError = false;
 
     try {
-      // Sequential processing
+      // Sequential processing of files (but internal logic uses batching)
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const filePrefix = files.length > 1 ? `[Arquivo ${i + 1}/${files.length}] ` : '';
@@ -64,11 +71,10 @@ export const Upload: React.FC = () => {
             continue;
           }
 
-          // Validation: Check if pages actually contain text
+          // Validation
           const totalTextLength = pages.reduce((acc, page) => acc + page.length, 0);
-          // 50 chars is an arbitrary low number to detect essentially empty files (headers only)
           if (totalTextLength < 50) {
-            throw new Error(`O arquivo ${file.name} parece ser uma imagem digitalizada ou está vazio. Este app requer PDFs com texto selecionável.`);
+            throw new Error(`O arquivo ${file.name} parece ser uma imagem digitalizada ou está vazio.`);
           }
 
           // 2. AI Parsing with progress callback
@@ -85,7 +91,7 @@ export const Upload: React.FC = () => {
         } catch (innerErr: any) {
           console.error(`Error processing file ${file.name}:`, innerErr);
           if (innerErr.message?.includes("imagem digitalizada")) {
-            throw innerErr;
+             // Treat as specific error, maybe abort or warn
           }
           hasError = true;
         }
@@ -93,10 +99,9 @@ export const Upload: React.FC = () => {
 
       if (allRecipes.length === 0) {
         if (hasError) {
-             throw new Error("Falha ao processar arquivos. A IA pode estar indisponível ou encontrou um erro, tente novamente.");
+             throw new Error("Falha ao processar arquivos. Verifique se o PDF é legível.");
         }
-        // If no error was thrown but no recipes found, it means the text was processed but AI found nothing.
-        throw new Error("Não foram encontradas receitas. Verifique se o conteúdo do PDF é legível.");
+        throw new Error("Não foram encontradas receitas. Verifique se o conteúdo do PDF é texto selecionável.");
       }
 
       setExtractedCount(allRecipes.length);
@@ -116,8 +121,8 @@ export const Upload: React.FC = () => {
       console.error(err);
       const msg = err.message || "Ocorreu um erro inesperado.";
       
-      if (msg.includes("API_KEY") || msg.includes("API Key")) {
-        setError("Erro de Configuração: API KEY não encontrada. Verifique as variáveis de ambiente.");
+      if (msg.includes("API_KEY") || msg.includes("API Key") || msg.includes("VITE_GEMINI_API_KEY")) {
+        setError("Erro de Configuração: API KEY não encontrada. Verifique o painel do Vercel.");
       } else if (msg.includes("429") || msg.includes("quota")) {
         setError("Limite da API atingido. Aguarde alguns instantes e tente novamente.");
       } else {

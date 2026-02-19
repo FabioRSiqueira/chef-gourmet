@@ -5,28 +5,32 @@ import { Recipe } from "../types";
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Helper to get API Key safely across different environments (Vite, Webpack, Vercel)
-const getApiKey = (): string => {
-  // 1. Try Vite standard way (import.meta.env)
+export const getApiKey = (): string => {
+  let key = "";
+
+  // 1. Try Vite standard way (Most reliable for Vercel + Vite)
+  // We explicitly check specific keys so the bundler doesn't optimize them away
+  // Fix: Cast import.meta to any to allow access to .env which might not be in the default ImportMeta type
   // @ts-ignore
-  if (typeof import.meta !== 'undefined' && import.meta.env) {
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
     // @ts-ignore
-    if (import.meta.env.VITE_GEMINI_API_KEY) return import.meta.env.VITE_GEMINI_API_KEY;
-    // @ts-ignore
-    if (import.meta.env.VITE_API_KEY) return import.meta.env.VITE_API_KEY;
-    // @ts-ignore
-    if (import.meta.env.GEMINI_API_KEY) return import.meta.env.GEMINI_API_KEY;
+    const env = (import.meta as any).env;
+    key = env.VITE_GEMINI_API_KEY || 
+          env.VITE_API_KEY || 
+          env.GEMINI_API_KEY || 
+          "";
   }
   
-  // 2. Try process.env (Standard Node/Webpack/Polyfilled)
-  try {
-    if (typeof process !== 'undefined' && process.env) {
-      if (process.env.API_KEY) return process.env.API_KEY;
-      if (process.env.VITE_API_KEY) return process.env.VITE_API_KEY;
-      if (process.env.GEMINI_API_KEY) return process.env.GEMINI_API_KEY;
-    }
-  } catch (e) {}
+  // 2. Fallback to process.env
+  if (!key && typeof process !== 'undefined' && process.env) {
+    key = process.env.VITE_GEMINI_API_KEY || 
+          process.env.VITE_API_KEY || 
+          process.env.GEMINI_API_KEY || 
+          process.env.API_KEY || 
+          "";
+  }
 
-  return "";
+  return key;
 }
 
 // Internal function to process a single chunk of text with Gemini
@@ -34,12 +38,11 @@ const processChunk = async (textChunk: string, retries = 3): Promise<Recipe[]> =
   const apiKey = getApiKey();
 
   if (!apiKey) {
-    throw new Error("API Key is missing. Please set VITE_GEMINI_API_KEY in your Vercel/Environment variables.");
+    throw new Error("API Key configuration error. Please ensure VITE_GEMINI_API_KEY is set in Vercel Environment Variables.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
   
-  // Concise prompt for speed
   const systemInstruction = `
     Extract recipes from the text into a JSON object with a "recipes" array.
     Recognize tables (e.g., "Farinha 25 G").
@@ -104,9 +107,7 @@ const processChunk = async (textChunk: string, retries = 3): Promise<Recipe[]> =
   } catch (error: any) {
     console.warn("Gemini processing warning:", error);
     
-    // Retry on rate limit or server error
     if (retries > 0 && (error.status === 429 || error.status >= 500)) {
-       // Exponential backoff for retries
        await delay(1000 * (4 - retries)); 
        return processChunk(textChunk, retries - 1);
     }
@@ -119,9 +120,7 @@ export const parseRecipesFromPages = async (
   onProgress?: (status: string) => void
 ): Promise<Recipe[]> => {
   
-  // OPTIMIZATION:
-  // Reduced CHUNK_SIZE from 4 to 2 to get faster responses per request.
-  // Smaller context = Faster inference.
+  // CHUNK_SIZE = 2 pages per request (faster than sending 4 or 10)
   const CHUNK_SIZE = 2; 
   const chunks: string[] = [];
 
@@ -134,9 +133,8 @@ export const parseRecipesFromPages = async (
 
     const allRecipes: Recipe[] = [];
     
-    // OPTIMIZATION: Parallel Batch Processing
-    // Process 3 chunks concurrently. This creates a good balance between speed 
-    // and avoiding the "429 Too Many Requests" rate limit of the API.
+    // BATCH_SIZE = 3 requests in parallel
+    // This makes it significantly faster on Vercel/Production
     const BATCH_SIZE = 3;
     
     for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
@@ -147,15 +145,12 @@ export const parseRecipesFromPages = async (
         onProgress(`Processando lote ${Math.ceil((i + 1) / BATCH_SIZE)} (Partes ${batchIndices.join(', ')} de ${chunks.length})...`);
       }
 
-      // Run batch in parallel
       const results = await Promise.all(
         batch.map(chunk => processChunk(chunk))
       );
 
-      // Collect results
       results.forEach(recipes => allRecipes.push(...recipes));
 
-      // Small delay between batches to be nice to the API rate limiter
       if (i + BATCH_SIZE < chunks.length) {
         await delay(200);
       }
