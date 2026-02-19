@@ -18,8 +18,12 @@ export const extractTextFromPdf = async (file: File): Promise<string[]> => {
           const page = await pdf.getPage(pageNum);
           const textContent = await page.getTextContent();
           
-          // Simple text extraction - joining items with space
-          const pageText = textContent.items.map((item: any) => item.str).join(' ');
+          // Enhanced text extraction to preserve some structure
+          // Join with newline if the item has EOL flag, otherwise space
+          const pageText = textContent.items
+            .map((item: any) => item.str + (item.hasEOL ? '\n' : ' '))
+            .join('');
+
           return `--- PAGE ${pageNum} ---\n${pageText}`;
         });
 

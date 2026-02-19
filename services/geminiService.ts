@@ -1,48 +1,27 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Recipe } from "../types";
 
-const getApiKey = () => {
-  // Vite replaces specific string patterns at build time.
-  // We MUST access these properties directly, not via dynamic keys (e.g. process.env[key]).
+// Helper to pause execution
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Internal function to process a single chunk of text with Gemini
+const processChunk = async (textChunk: string, retries = 3): Promise<Recipe[]> => {
+  // Use process.env.API_KEY directly as per guidelines
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  // 1. Check for VITE_API_KEY (Standard for Vite)
-  // @ts-ignore
-  if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.VITE_API_KEY) {
-    // @ts-ignore
-    return (import.meta as any).env.VITE_API_KEY;
-  }
+  const systemInstruction = `
+    You are a specialized recipe extractor. 
+    Analyze the provided text and extract culinary recipes into a strict JSON structure.
+    
+    Rules:
+    1. If the text contains no recipes, return { "recipes": [] }.
+    2. Extract ALL recipes found in the text.
+    3. Be precise with quantities and units.
+    4. Maintain the original language of the text (Portuguese).
+  `;
 
-  // 2. Check for API_KEY (Fallback)
-  // @ts-ignore
-  if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.API_KEY) {
-    // @ts-ignore
-    return (import.meta as any).env.API_KEY;
-  }
-
-  // 3. Process.env fallback (for some Vercel/Webpack setups)
-  // We use direct access so the bundler can inline the value.
-  try {
-    if (typeof process !== 'undefined' && process.env) {
-      if (process.env.VITE_API_KEY) return process.env.VITE_API_KEY;
-      if (process.env.API_KEY) return process.env.API_KEY;
-      if (process.env.REACT_APP_API_KEY) return process.env.REACT_APP_API_KEY;
-    }
-  } catch (e) {}
-  
-  return undefined;
-}
-
-const initGemini = () => {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    return null;
-  }
-  return new GoogleGenAI({ apiKey });
-};
-
-// Internal function to process a single chunk of text
-const processChunk = async (textChunk: string, ai: GoogleGenAI): Promise<Recipe[]> => {
-  const schema = {
+  // Define the strict response schema
+  const responseSchema = {
     type: Type.OBJECT,
     properties: {
       recipes: {
@@ -50,31 +29,40 @@ const processChunk = async (textChunk: string, ai: GoogleGenAI): Promise<Recipe[
         items: {
           type: Type.OBJECT,
           properties: {
-            lesson_name: { type: Type.STRING, description: "Lesson name" },
-            title: { type: Type.STRING, description: "Recipe title" },
+            lesson_name: { 
+              type: Type.STRING, 
+              description: "Title of the section or lesson, e.g. 'Aula 1 - Bases'"
+            },
+            title: { 
+              type: Type.STRING,
+              description: "Name of the recipe"
+            },
             ingredients: {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  sectionName: { type: Type.STRING },
+                  sectionName: { 
+                    type: Type.STRING,
+                    description: "e.g. 'Massa', 'Recheio', 'Montagem'. Defaults to 'Ingredientes' if not specified."
+                  },
                   items: {
                     type: Type.ARRAY,
                     items: {
                       type: Type.OBJECT,
                       properties: {
-                        name: { type: Type.STRING },
-                        qty: { type: Type.STRING },
-                        unit: { type: Type.STRING }
+                         name: { type: Type.STRING },
+                         qty: { type: Type.STRING },
+                         unit: { type: Type.STRING }
                       }
                     }
                   }
                 }
               }
             },
-            steps: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING }
+            steps: { 
+              type: Type.ARRAY, 
+              items: { type: Type.STRING } 
             }
           }
         }
@@ -82,35 +70,28 @@ const processChunk = async (textChunk: string, ai: GoogleGenAI): Promise<Recipe[
     }
   };
 
-  // Highly optimized prompt for speed
-  const prompt = `
-    Extract recipes to JSON.
-    TEXT: ${textChunk}
-  `;
-
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview', 
-      contents: prompt,
+      model: 'gemini-3-flash-preview',
+      contents: textChunk,
       config: {
+        systemInstruction: systemInstruction,
         responseMimeType: 'application/json',
-        responseSchema: schema,
-        temperature: 0.1,
+        responseSchema: responseSchema,
       }
     });
 
     const result = JSON.parse(response.text || '{}');
-    const rawRecipes = result.recipes || [];
+    return result.recipes || [];
 
-    return rawRecipes.map((r: any) => ({
-      lesson_name: r.lesson_name || "",
-      title: r.title || "Receita Sem Nome",
-      ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
-      steps: Array.isArray(r.steps) ? r.steps : [],
-    }));
-
-  } catch (error) {
-    console.warn("Chunk processing warning:", error);
+  } catch (error: any) {
+    console.warn("Gemini processing warning:", error);
+    
+    // Simple retry logic
+    if (retries > 0 && (error.status === 429 || error.status >= 500)) {
+       await delay(2000);
+       return processChunk(textChunk, retries - 1);
+    }
     return [];
   }
 };
@@ -119,16 +100,10 @@ export const parseRecipesFromPages = async (
   pages: string[], 
   onProgress?: (status: string) => void
 ): Promise<Recipe[]> => {
-  const ai = initGemini();
   
-  if (!ai) {
-    throw new Error("Gemini API Key is missing. Please set 'VITE_API_KEY' in your Vercel Environment Variables.");
-  }
-
-  // INCREASED CHUNK SIZE TO 80:
-  // Maximizes context window usage. 
-  // Most PDFs will now be processed in a single API call.
-  const CHUNK_SIZE = 80; 
+  // Gemini Context Window management
+  // Gemini 3 Flash has a large context window, but we keep chunking to manage output size and logical separation.
+  const CHUNK_SIZE = 4; 
   const chunks: string[] = [];
 
   for (let i = 0; i < pages.length; i += CHUNK_SIZE) {
@@ -136,20 +111,24 @@ export const parseRecipesFromPages = async (
   }
 
   try {
-    if (onProgress) onProgress(`Analisando ${chunks.length} parte(s) do documento...`);
+    if (onProgress) onProgress(`Preparando ${chunks.length} parte(s) para análise...`);
 
-    // Parallel processing of chunks
-    const promiseResults = await Promise.all(
-      chunks.map(async (chunk, idx) => {
-        const res = await processChunk(chunk, ai);
-        if (onProgress) onProgress(`Parte ${idx + 1}/${chunks.length} concluída...`);
-        return res;
-      })
-    );
-    return promiseResults.flat();
+    const allRecipes: Recipe[] = [];
+
+    // Sequential processing
+    for (let i = 0; i < chunks.length; i++) {
+      if (onProgress) onProgress(`Analisando parte ${i + 1} de ${chunks.length} com Gemini AI...`);
+      
+      const chunkRecipes = await processChunk(chunks[i]);
+      allRecipes.push(...chunkRecipes);
+      
+      // Small breather
+      if (i < chunks.length - 1) await delay(500);
+    }
+
+    return allRecipes;
   } catch (error: any) {
     console.error("Gemini Extraction Error:", error);
-    if (error.message.includes("API Key")) throw error;
     throw new Error("Failed to process recipes with AI. Please try again.");
   }
 };

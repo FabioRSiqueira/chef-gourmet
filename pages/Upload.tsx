@@ -46,20 +46,29 @@ export const Upload: React.FC = () => {
     setStatus('Iniciando...');
     
     const allRecipes: Recipe[] = [];
+    let hasError = false;
 
     try {
-      // Process files concurrently
-      const filePromises = files.map(async (file, idx) => {
-        const filePrefix = files.length > 1 ? `[Arq ${idx + 1}] ` : '';
+      // Sequential processing
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const filePrefix = files.length > 1 ? `[Arquivo ${i + 1}/${files.length}] ` : '';
 
         try {
           // 1. Extract Text
-          setStatus(`${filePrefix}Lendo PDF...`);
+          setStatus(`${filePrefix}Extraindo texto do PDF...`);
           const pages = await extractTextFromPdf(file);
           
           if (!pages || pages.length === 0) {
             console.warn(`Skipping ${file.name}: No text extracted.`);
-            return;
+            continue;
+          }
+
+          // Validation: Check if pages actually contain text
+          const totalTextLength = pages.reduce((acc, page) => acc + page.length, 0);
+          // 50 chars is an arbitrary low number to detect essentially empty files (headers only)
+          if (totalTextLength < 50) {
+            throw new Error(`O arquivo ${file.name} parece ser uma imagem digitalizada ou está vazio. Este app requer PDFs com texto selecionável.`);
           }
 
           // 2. AI Parsing with progress callback
@@ -69,20 +78,25 @@ export const Upload: React.FC = () => {
           
           if (recipes.length > 0) {
             allRecipes.push(...recipes);
+          } else {
+             console.log(`No recipes found in ${file.name}`);
           }
           
-        } catch (innerErr) {
+        } catch (innerErr: any) {
           console.error(`Error processing file ${file.name}:`, innerErr);
-          if (innerErr instanceof Error && innerErr.message.includes("API Key")) {
+          if (innerErr.message?.includes("imagem digitalizada")) {
             throw innerErr;
           }
+          hasError = true;
         }
-      });
-
-      await Promise.all(filePromises);
+      }
 
       if (allRecipes.length === 0) {
-        throw new Error("Não foi possível extrair receitas. Verifique se os PDFs contêm texto selecionável.");
+        if (hasError) {
+             throw new Error("Falha ao processar arquivos. A IA pode estar indisponível ou encontrou um erro, tente novamente.");
+        }
+        // If no error was thrown but no recipes found, it means the text was processed but AI found nothing.
+        throw new Error("Não foram encontradas receitas. Verifique se o conteúdo do PDF é legível.");
       }
 
       setExtractedCount(allRecipes.length);
@@ -102,8 +116,10 @@ export const Upload: React.FC = () => {
       console.error(err);
       const msg = err.message || "Ocorreu um erro inesperado.";
       
-      if (msg.includes("API Key")) {
-        setError("Erro de Configuração: Chave da API Gemini não encontrada. No painel do Vercel, certifique-se de que a variável de ambiente se chama 'VITE_API_KEY'.");
+      if (msg.includes("API_KEY") || msg.includes("API Key")) {
+        setError("Erro de Configuração: API KEY não encontrada. Verifique as variáveis de ambiente.");
+      } else if (msg.includes("429") || msg.includes("quota")) {
+        setError("Limite da API atingido. Aguarde alguns instantes e tente novamente.");
       } else {
         setError(msg);
       }
@@ -117,7 +133,7 @@ export const Upload: React.FC = () => {
     <div className="max-w-3xl mx-auto min-h-[70vh] flex flex-col justify-center">
       <div className="text-center mb-10">
         <h1 className="text-4xl font-serif font-bold text-gray-900 mb-3">Adicionar Receitas</h1>
-        <p className="text-gray-500 text-lg">Envie um ou mais PDFs. O Gemini irá extrair e organizar tudo automaticamente.</p>
+        <p className="text-gray-500 text-lg">Envie um ou mais PDFs. O Gemini AI irá extrair e organizar tudo automaticamente.</p>
       </div>
 
       <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 md:p-12">
