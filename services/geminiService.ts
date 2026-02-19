@@ -4,33 +4,33 @@ import { Recipe } from "../types";
 // Helper to pause execution
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Helper to get API Key safely across different environments (Vite, Webpack, Vercel)
+// CRITICAL FIX FOR VERCEL/VITE:
+// Vite statically replaces 'import.meta.env.VITE_KEY' strings during build.
+// Dynamic access (e.g., env[key] or const env = import.meta.env) FAILS in production.
+// We must check each expected key explicitly.
 export const getApiKey = (): string => {
-  let key = "";
-
-  // 1. Try Vite standard way (Most reliable for Vercel + Vite)
-  // We explicitly check specific keys so the bundler doesn't optimize them away
-  // Fix: Cast import.meta to any to allow access to .env which might not be in the default ImportMeta type
+  // 1. Try Vite Static Replacement (Production)
   // @ts-ignore
-  if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
     // @ts-ignore
-    const env = (import.meta as any).env;
-    key = env.VITE_GEMINI_API_KEY || 
-          env.VITE_API_KEY || 
-          env.GEMINI_API_KEY || 
-          "";
+    if (import.meta.env.VITE_GEMINI_API_KEY) return import.meta.env.VITE_GEMINI_API_KEY;
+    // @ts-ignore
+    if (import.meta.env.VITE_API_KEY) return import.meta.env.VITE_API_KEY;
+    // @ts-ignore
+    if (import.meta.env.GEMINI_API_KEY) return import.meta.env.GEMINI_API_KEY;
   }
   
-  // 2. Fallback to process.env
-  if (!key && typeof process !== 'undefined' && process.env) {
-    key = process.env.VITE_GEMINI_API_KEY || 
-          process.env.VITE_API_KEY || 
-          process.env.GEMINI_API_KEY || 
-          process.env.API_KEY || 
-          "";
-  }
+  // 2. Fallback to process.env (Node/Webpack compatibility)
+  try {
+    if (typeof process !== 'undefined' && process.env) {
+      if (process.env.VITE_GEMINI_API_KEY) return process.env.VITE_GEMINI_API_KEY;
+      if (process.env.VITE_API_KEY) return process.env.VITE_API_KEY;
+      if (process.env.GEMINI_API_KEY) return process.env.GEMINI_API_KEY;
+      if (process.env.API_KEY) return process.env.API_KEY;
+    }
+  } catch (e) {}
 
-  return key;
+  return "";
 }
 
 // Internal function to process a single chunk of text with Gemini
@@ -38,7 +38,7 @@ const processChunk = async (textChunk: string, retries = 3): Promise<Recipe[]> =
   const apiKey = getApiKey();
 
   if (!apiKey) {
-    throw new Error("API Key configuration error. Please ensure VITE_GEMINI_API_KEY is set in Vercel Environment Variables.");
+    throw new Error("API Key configuration error. Please ensure 'VITE_GEMINI_API_KEY' is set in Vercel Environment Variables.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -107,8 +107,9 @@ const processChunk = async (textChunk: string, retries = 3): Promise<Recipe[]> =
   } catch (error: any) {
     console.warn("Gemini processing warning:", error);
     
+    // Rate limit handling (429)
     if (retries > 0 && (error.status === 429 || error.status >= 500)) {
-       await delay(1000 * (4 - retries)); 
+       await delay(1500 * (4 - retries)); 
        return processChunk(textChunk, retries - 1);
     }
     return [];
@@ -120,7 +121,8 @@ export const parseRecipesFromPages = async (
   onProgress?: (status: string) => void
 ): Promise<Recipe[]> => {
   
-  // CHUNK_SIZE = 2 pages per request (faster than sending 4 or 10)
+  // OPTIMIZATION FOR SPEED:
+  // CHUNK_SIZE: 2 pages per request keeps the prompt small and response fast.
   const CHUNK_SIZE = 2; 
   const chunks: string[] = [];
 
@@ -133,9 +135,10 @@ export const parseRecipesFromPages = async (
 
     const allRecipes: Recipe[] = [];
     
-    // BATCH_SIZE = 3 requests in parallel
-    // This makes it significantly faster on Vercel/Production
-    const BATCH_SIZE = 3;
+    // OPTIMIZATION FOR SPEED:
+    // BATCH_SIZE: 5 concurrent requests. Gemini Flash is fast and handles concurrency well.
+    // This dramatically reduces total time on Vercel compared to sequential processing.
+    const BATCH_SIZE = 5;
     
     for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
       const batch = chunks.slice(i, i + BATCH_SIZE);
@@ -151,8 +154,9 @@ export const parseRecipesFromPages = async (
 
       results.forEach(recipes => allRecipes.push(...recipes));
 
+      // Minimal delay to allow UI updates and prevent total browser freeze
       if (i + BATCH_SIZE < chunks.length) {
-        await delay(200);
+        await delay(100);
       }
     }
 
