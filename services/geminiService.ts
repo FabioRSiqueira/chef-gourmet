@@ -39,40 +39,28 @@ const processChunk = async (textChunk: string, retries = 3): Promise<Recipe[]> =
 
   const ai = new GoogleGenAI({ apiKey });
   
-  // More permissive prompt that handles the specific table format seen in the PDF
+  // Concise prompt for speed
   const systemInstruction = `
-    You are a professional recipe extractor.
-    Your task is to identify and extract recipes from the provided text.
-
-    The text often contains tables with columns like: "Descrição", "Qtd", "Medida".
-    Example line from PDF: "Farinha 25 G" -> Ingredient: Farinha, Qty: 25, Unit: G.
+    Extract recipes from the text into a JSON object with a "recipes" array.
+    Recognize tables (e.g., "Farinha 25 G").
     
-    Structure the output as a JSON object containing a "recipes" array.
-    
-    JSON Structure:
+    Format:
     {
       "recipes": [
         {
-          "lesson_name": "String (e.g. 'Panificação – Aula 04')",
-          "title": "String (e.g. 'FOCACCIA', 'PIZZA')",
+          "lesson_name": "String",
+          "title": "String",
           "ingredients": [
             {
-              "sectionName": "String (e.g. 'Massa', 'Recheio', 'Esponja'). Default to 'Ingredientes'",
-              "items": [
-                { "name": "String", "qty": "String (number)", "unit": "String (g, ml, colher, etc)" }
-              ]
+              "sectionName": "String (default 'Ingredientes')",
+              "items": [{ "name": "String", "qty": "String", "unit": "String" }]
             }
           ],
-          "steps": ["String (instruction step)"]
+          "steps": ["String"]
         }
       ]
     }
-
-    Rules:
-    1. Extract ALL recipes found.
-    2. If a quantity is missing, leave "qty" empty string.
-    3. Detect sections like "MASSA", "RECHEIO", "MOLHO" effectively.
-    4. Return ONLY valid JSON. Do not add markdown blocks like \`\`\`json if possible, but if you do, the parser will handle it.
+    Return ONLY valid JSON.
   `;
 
   try {
@@ -82,25 +70,22 @@ const processChunk = async (textChunk: string, retries = 3): Promise<Recipe[]> =
       config: {
         systemInstruction: systemInstruction,
         responseMimeType: 'application/json',
-        // Removed strict responseSchema to prevent validation failures on loose text
       }
     });
 
     let jsonText = response.text || '{}';
 
-    // Robust Cleaning: Remove markdown formatting if present
+    // Robust Cleaning
     const markdownMatch = jsonText.match(/```json\s*([\s\S]*?)\s*```/) || jsonText.match(/```\s*([\s\S]*?)\s*```/);
     if (markdownMatch) {
       jsonText = markdownMatch[1];
     }
 
-    // Try parsing
     let result;
     try {
       result = JSON.parse(jsonText);
     } catch (e) {
-      console.warn("JSON parse failed, attempting loose extraction", e);
-      // Fallback: try to find the first { and last }
+      // Fallback: simple extraction
       const start = jsonText.indexOf('{');
       const end = jsonText.lastIndexOf('}');
       if (start !== -1 && end !== -1) {
@@ -119,8 +104,10 @@ const processChunk = async (textChunk: string, retries = 3): Promise<Recipe[]> =
   } catch (error: any) {
     console.warn("Gemini processing warning:", error);
     
+    // Retry on rate limit or server error
     if (retries > 0 && (error.status === 429 || error.status >= 500)) {
-       await delay(2000);
+       // Exponential backoff for retries
+       await delay(1000 * (4 - retries)); 
        return processChunk(textChunk, retries - 1);
     }
     return [];
@@ -132,8 +119,10 @@ export const parseRecipesFromPages = async (
   onProgress?: (status: string) => void
 ): Promise<Recipe[]> => {
   
-  // Chunk size
-  const CHUNK_SIZE = 4; 
+  // OPTIMIZATION:
+  // Reduced CHUNK_SIZE from 4 to 2 to get faster responses per request.
+  // Smaller context = Faster inference.
+  const CHUNK_SIZE = 2; 
   const chunks: string[] = [];
 
   for (let i = 0; i < pages.length; i += CHUNK_SIZE) {
@@ -141,18 +130,35 @@ export const parseRecipesFromPages = async (
   }
 
   try {
-    if (onProgress) onProgress(`Preparando ${chunks.length} parte(s) para análise...`);
+    if (onProgress) onProgress(`Preparando ${chunks.length} partes para análise rápida...`);
 
     const allRecipes: Recipe[] = [];
+    
+    // OPTIMIZATION: Parallel Batch Processing
+    // Process 3 chunks concurrently. This creates a good balance between speed 
+    // and avoiding the "429 Too Many Requests" rate limit of the API.
+    const BATCH_SIZE = 3;
+    
+    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+      const batch = chunks.slice(i, i + BATCH_SIZE);
+      const batchIndices = batch.map((_, idx) => i + idx + 1);
+      
+      if (onProgress) {
+        onProgress(`Processando lote ${Math.ceil((i + 1) / BATCH_SIZE)} (Partes ${batchIndices.join(', ')} de ${chunks.length})...`);
+      }
 
-    // Sequential processing
-    for (let i = 0; i < chunks.length; i++) {
-      if (onProgress) onProgress(`Analisando parte ${i + 1} de ${chunks.length} com Gemini AI...`);
-      
-      const chunkRecipes = await processChunk(chunks[i]);
-      allRecipes.push(...chunkRecipes);
-      
-      if (i < chunks.length - 1) await delay(500);
+      // Run batch in parallel
+      const results = await Promise.all(
+        batch.map(chunk => processChunk(chunk))
+      );
+
+      // Collect results
+      results.forEach(recipes => allRecipes.push(...recipes));
+
+      // Small delay between batches to be nice to the API rate limiter
+      if (i + BATCH_SIZE < chunks.length) {
+        await delay(200);
+      }
     }
 
     return allRecipes;
