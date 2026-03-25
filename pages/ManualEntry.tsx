@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2, Save, ArrowLeft, PlusCircle, ListOrdered, Utensils } from 'lucide-react';
+import { Plus, Trash2, Save, ArrowLeft, PlusCircle, ListOrdered, Utensils, X } from 'lucide-react';
 import { saveRecipes } from '../services/supabaseService';
 import { Recipe, IngredientSection, Ingredient } from '../types';
 
