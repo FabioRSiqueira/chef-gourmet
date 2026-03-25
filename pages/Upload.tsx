@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { Upload as UploadIcon, FileText, CheckCircle, AlertCircle, Loader2, ArrowRight, X, Plus } from 'lucide-react';
+import { Upload as UploadIcon, FileText, CheckCircle, AlertCircle, Loader2, ArrowRight, X, Plus, FileSpreadsheet, PenLine } from 'lucide-react';
 import { extractTextFromPdf } from '../services/pdfService';
+import { extractTextFromCsv, extractTextFromExcel } from '../services/spreadsheetService';
 import { parseRecipesFromPages, getApiKey } from '../services/geminiService';
 import { saveRecipes } from '../services/supabaseService';
 import { Recipe } from '../types';
@@ -17,10 +18,25 @@ export const Upload: React.FC = () => {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const newFiles = Array.from(e.target.files).filter((f: File) => f.type === 'application/pdf');
+      const allowedTypes = [
+        'application/pdf', 
+        'text/csv', 
+        'application/vnd.ms-excel', 
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      ];
+      
+      const newFiles = Array.from(e.target.files).filter((f: File) => {
+        // Check MIME type or extension as fallback
+        const isAllowed = allowedTypes.includes(f.type) || 
+                          f.name.endsWith('.csv') || 
+                          f.name.endsWith('.xls') || 
+                          f.name.endsWith('.xlsx') ||
+                          f.name.endsWith('.pdf');
+        return isAllowed;
+      });
       
       if (newFiles.length === 0) {
-        setError("Por favor, selecione apenas arquivos PDF.");
+        setError("Por favor, selecione apenas arquivos PDF, CSV ou Excel.");
         return;
       }
 
@@ -36,6 +52,11 @@ export const Upload: React.FC = () => {
 
   const removeFile = (indexToRemove: number) => {
     setFiles(prev => prev.filter((_, index) => index !== indexToRemove));
+  };
+
+  const getFileIcon = (file: File) => {
+    if (file.name.endsWith('.pdf')) return <FileText className="text-chef-red w-5 h-5" />;
+    return <FileSpreadsheet className="text-green-600 w-5 h-5" />;
   };
 
   const processFiles = async () => {
@@ -62,19 +83,30 @@ export const Upload: React.FC = () => {
         const filePrefix = files.length > 1 ? `[Arquivo ${i + 1}/${files.length}] ` : '';
 
         try {
-          // 1. Extract Text
-          setStatus(`${filePrefix}Extraindo texto do PDF...`);
-          const pages = await extractTextFromPdf(file);
+          // 1. Extract Text based on file type
+          setStatus(`${filePrefix}Extraindo conteúdo...`);
+          let pages: string[] = [];
+
+          if (file.name.toLowerCase().endsWith('.pdf')) {
+            pages = await extractTextFromPdf(file);
+          } else if (file.name.toLowerCase().endsWith('.csv')) {
+            pages = await extractTextFromCsv(file);
+          } else if (file.name.toLowerCase().endsWith('.xls') || file.name.toLowerCase().endsWith('.xlsx')) {
+            pages = await extractTextFromExcel(file);
+          } else {
+            console.warn(`Skipping unsupported file: ${file.name}`);
+            continue;
+          }
           
           if (!pages || pages.length === 0) {
-            console.warn(`Skipping ${file.name}: No text extracted.`);
+            console.warn(`Skipping ${file.name}: No content extracted.`);
             continue;
           }
 
           // Validation
           const totalTextLength = pages.reduce((acc, page) => acc + page.length, 0);
-          if (totalTextLength < 50) {
-            throw new Error(`O arquivo ${file.name} parece ser uma imagem digitalizada ou está vazio.`);
+          if (totalTextLength < 10) {
+            throw new Error(`O arquivo ${file.name} parece vazio.`);
           }
 
           // 2. AI Parsing with progress callback
@@ -99,9 +131,9 @@ export const Upload: React.FC = () => {
 
       if (allRecipes.length === 0) {
         if (hasError) {
-             throw new Error("Falha ao processar arquivos. Verifique se o PDF é legível.");
+             throw new Error("Falha ao processar arquivos. Verifique se são legíveis.");
         }
-        throw new Error("Não foram encontradas receitas. Verifique se o conteúdo do PDF é texto selecionável.");
+        throw new Error("Não foram encontradas receitas. Verifique o conteúdo dos arquivos.");
       }
 
       setExtractedCount(allRecipes.length);
@@ -122,9 +154,13 @@ export const Upload: React.FC = () => {
       const msg = err.message || "Ocorreu um erro inesperado.";
       
       if (msg.includes("API_KEY") || msg.includes("API Key") || msg.includes("VITE_GEMINI_API_KEY")) {
-        setError("Erro de Configuração: API KEY não encontrada. Verifique o painel do Vercel.");
+        setError("Erro de Configuração: API KEY não encontrada. Verifique se 'VITE_GEMINI_API_KEY' está configurada nas variáveis de ambiente do Vercel.");
       } else if (msg.includes("429") || msg.includes("quota")) {
         setError("Limite da API atingido. Aguarde alguns instantes e tente novamente.");
+      } else if (msg.includes("PDF")) {
+        setError(`Erro no PDF: ${msg}`);
+      } else if (msg.includes("Supabase")) {
+        setError("Erro ao salvar: Verifique as variáveis de ambiente do Supabase no Vercel.");
       } else {
         setError(msg);
       }
@@ -138,7 +174,15 @@ export const Upload: React.FC = () => {
     <div className="max-w-3xl mx-auto min-h-[70vh] flex flex-col justify-center">
       <div className="text-center mb-10">
         <h1 className="text-4xl font-serif font-bold text-gray-900 mb-3">Adicionar Receitas</h1>
-        <p className="text-gray-500 text-lg">Envie um ou mais PDFs. O Gemini AI irá extrair e organizar tudo automaticamente.</p>
+        <p className="text-gray-500 text-lg">Envie PDFs, Excel ou CSV. O Gemini AI irá extrair e organizar tudo automaticamente.</p>
+        <div className="mt-4">
+          <button 
+            onClick={() => navigate('/manual')}
+            className="text-chef-red font-medium hover:underline flex items-center gap-1 mx-auto"
+          >
+            <PenLine className="w-4 h-4" /> Ou prefere inserir manualmente?
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 md:p-12">
@@ -150,11 +194,11 @@ export const Upload: React.FC = () => {
             <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
               <UploadIcon className="w-10 h-10 text-gray-400 group-hover:text-chef-red" />
             </div>
-            <h3 className="text-xl font-bold text-gray-700 mb-2">Clique para selecionar PDFs</h3>
-            <p className="text-gray-400 text-sm">Suporta seleção múltipla</p>
+            <h3 className="text-xl font-bold text-gray-700 mb-2">Clique para selecionar arquivos</h3>
+            <p className="text-gray-400 text-sm">PDF, Excel (.xlsx, .xls) ou CSV</p>
             <input 
               type="file" 
-              accept=".pdf" 
+              accept=".pdf,.csv,.xlsx,.xls,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" 
               multiple
               className="hidden" 
               ref={fileInputRef} 
@@ -170,7 +214,7 @@ export const Upload: React.FC = () => {
                 <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 animate-in fade-in slide-in-from-bottom-2 duration-300" style={{animationDelay: `${idx * 50}ms`}}>
                   <div className="flex items-center overflow-hidden">
                     <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center mr-3 flex-shrink-0">
-                      <FileText className="text-chef-red w-5 h-5" />
+                      {getFileIcon(file)}
                     </div>
                     <div className="min-w-0">
                       <p className="font-medium text-gray-900 truncate">{file.name}</p>
@@ -209,7 +253,7 @@ export const Upload: React.FC = () => {
             
             <input 
               type="file" 
-              accept=".pdf" 
+              accept=".pdf,.csv,.xlsx,.xls,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" 
               multiple
               className="hidden" 
               ref={fileInputRef} 

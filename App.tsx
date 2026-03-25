@@ -2,7 +2,8 @@ import React from 'react';
 import { HashRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Library } from './pages/Library';
 import { Upload } from './pages/Upload';
-import { ChefHat, PlusCircle, Book } from 'lucide-react';
+import { ManualEntry } from './pages/ManualEntry';
+import { ChefHat, PlusCircle, Book, PenLine } from 'lucide-react';
 
 const NavLink: React.FC<{ to: string; icon: React.ReactNode; children: React.ReactNode }> = ({ to, icon, children }) => {
   const location = useLocation();
@@ -44,7 +45,10 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 Livro
               </NavLink>
               <NavLink to="/upload" icon={<PlusCircle className="w-4 h-4" />}>
-                Adicionar receita
+                Upload
+              </NavLink>
+              <NavLink to="/manual" icon={<PenLine className="w-4 h-4" />}>
+                Manual
               </NavLink>
             </div>
           </div>
@@ -73,6 +77,7 @@ const App: React.FC = () => {
         <Routes>
           <Route path="/" element={<Library />} />
           <Route path="/upload" element={<Upload />} />
+          <Route path="/manual" element={<ManualEntry />} />
         </Routes>
       </Layout>
     </HashRouter>
