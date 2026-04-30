@@ -3,7 +3,7 @@ import { Upload as UploadIcon, FileText, CheckCircle, AlertCircle, Loader2, Arro
 import { extractTextFromPdf } from '../services/pdfService';
 import { extractTextFromCsv, extractTextFromExcel } from '../services/spreadsheetService';
 import { parseRecipesFromPages, getApiKey } from '../services/geminiService';
-import { saveRecipes } from '../services/supabaseService';
+import { saveRecipes } from '../services/firebaseService';
 import { Recipe } from '../types';
 import { useNavigate } from 'react-router-dom';
 
@@ -22,7 +22,8 @@ export const Upload: React.FC = () => {
         'application/pdf', 
         'text/csv', 
         'application/vnd.ms-excel', 
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/json'
       ];
       
       const newFiles = Array.from(e.target.files).filter((f: File) => {
@@ -31,12 +32,13 @@ export const Upload: React.FC = () => {
                           f.name.endsWith('.csv') || 
                           f.name.endsWith('.xls') || 
                           f.name.endsWith('.xlsx') ||
-                          f.name.endsWith('.pdf');
+                          f.name.endsWith('.pdf') ||
+                          f.name.endsWith('.json');
         return isAllowed;
       });
       
       if (newFiles.length === 0) {
-        setError("Por favor, selecione apenas arquivos PDF, CSV ou Excel.");
+        setError("Por favor, selecione apenas arquivos PDF, CSV, Excel ou JSON.");
         return;
       }
 
@@ -56,6 +58,7 @@ export const Upload: React.FC = () => {
 
   const getFileIcon = (file: File) => {
     if (file.name.endsWith('.pdf')) return <FileText className="text-chef-red w-5 h-5" />;
+    if (file.name.endsWith('.json')) return <FileText className="text-blue-500 w-5 h-5" />;
     return <FileSpreadsheet className="text-green-600 w-5 h-5" />;
   };
 
@@ -93,6 +96,55 @@ export const Upload: React.FC = () => {
             pages = await extractTextFromCsv(file);
           } else if (file.name.toLowerCase().endsWith('.xls') || file.name.toLowerCase().endsWith('.xlsx')) {
             pages = await extractTextFromExcel(file);
+          } else if (file.name.toLowerCase().endsWith('.json')) {
+            setStatus(`${filePrefix}Lendo arquivo JSON...`);
+            const jsonText = await file.text();
+            const rawData = JSON.parse(jsonText);
+            const items = Array.isArray(rawData) ? rawData : [rawData];
+            
+            const processedRecipes = items.map(item => {
+              let ingredients = item.ingredients;
+              let steps = item.steps;
+              
+              // Handle ingredients stored as JSON strings
+              if (typeof ingredients === 'string') {
+                try {
+                  ingredients = JSON.parse(ingredients);
+                } catch (e) {
+                  console.warn("Failed to parse ingredients JSON string", e);
+                }
+              }
+              
+              // Handle steps stored as JSON strings
+              if (typeof steps === 'string') {
+                try {
+                  // Try parsing as JSON array first
+                  const parsedSteps = JSON.parse(steps);
+                  if (Array.isArray(parsedSteps)) {
+                    steps = parsedSteps;
+                  } else {
+                    steps = [steps];
+                  }
+                } catch (e) {
+                  // Fallback: split by newlines if it's just a text block
+                  steps = steps.split('\n').filter((s: string) => s.trim());
+                }
+              }
+              
+              return {
+                ...item,
+                ingredients: Array.isArray(ingredients) ? ingredients : [],
+                steps: Array.isArray(steps) ? steps : []
+              } as Recipe;
+            });
+
+            const validRecipes = processedRecipes.filter(r => r.title && r.ingredients.length > 0);
+            if (validRecipes.length > 0) {
+              allRecipes.push(...validRecipes);
+              continue; 
+            } else {
+              throw new Error("O arquivo JSON não parece conter receitas válidas no formato esperado.");
+            }
           } else {
             console.warn(`Skipping unsupported file: ${file.name}`);
             continue;
@@ -159,8 +211,8 @@ export const Upload: React.FC = () => {
         setError("Limite da API atingido. Aguarde alguns instantes e tente novamente.");
       } else if (msg.includes("PDF")) {
         setError(`Erro no PDF: ${msg}`);
-      } else if (msg.includes("Supabase")) {
-        setError("Erro ao salvar: Verifique as variáveis de ambiente do Supabase no Vercel.");
+      } else if (msg.includes("Firebase") || msg.includes("permission-denied")) {
+        setError("Erro ao salvar no Firebase: Verifique as regras de segurança ou conexão.");
       } else {
         setError(msg);
       }
@@ -174,7 +226,7 @@ export const Upload: React.FC = () => {
     <div className="max-w-3xl mx-auto min-h-[70vh] flex flex-col justify-center">
       <div className="text-center mb-10">
         <h1 className="text-4xl font-serif font-bold text-gray-900 mb-3">Adicionar Receitas</h1>
-        <p className="text-gray-500 text-lg">Envie PDFs, Excel ou CSV. O Gemini AI irá extrair e organizar tudo automaticamente.</p>
+        <p className="text-gray-500 text-lg">Envie PDFs, Excel, CSV ou JSON. O Gemini AI irá extrair e organizar tudo automaticamente.</p>
         <div className="mt-4">
           <button 
             onClick={() => navigate('/manual')}
@@ -195,10 +247,10 @@ export const Upload: React.FC = () => {
               <UploadIcon className="w-10 h-10 text-gray-400 group-hover:text-chef-red" />
             </div>
             <h3 className="text-xl font-bold text-gray-700 mb-2">Clique para selecionar arquivos</h3>
-            <p className="text-gray-400 text-sm">PDF, Excel (.xlsx, .xls) ou CSV</p>
+            <p className="text-gray-400 text-sm">PDF, Excel (.xlsx, .xls), CSV ou JSON</p>
             <input 
               type="file" 
-              accept=".pdf,.csv,.xlsx,.xls,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" 
+              accept=".pdf,.csv,.xlsx,.xls,.json,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/json" 
               multiple
               className="hidden" 
               ref={fileInputRef} 
@@ -253,7 +305,7 @@ export const Upload: React.FC = () => {
             
             <input 
               type="file" 
-              accept=".pdf,.csv,.xlsx,.xls,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" 
+              accept=".pdf,.csv,.xlsx,.xls,.json,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/json" 
               multiple
               className="hidden" 
               ref={fileInputRef} 

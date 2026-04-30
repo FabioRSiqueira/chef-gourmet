@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Recipe } from '../types';
-import { getRecipes } from '../services/supabaseService';
+import { getRecipes } from '../services/firebaseService';
 import { RecipeCard } from '../components/RecipeCard';
 import { RecipeModal } from '../components/RecipeModal';
 import { Search, Loader2, UtensilsCrossed } from 'lucide-react';

@@ -1,0 +1,48 @@
+{
+  "entities": {
+    "Recipe": {
+      "title": "Recipe",
+      "description": "A cooking recipe extracted from documents or entered manually.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "lesson_name": { "type": "string" },
+        "title": { "type": "string" },
+        "ingredients": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "sectionName": { "type": "string" },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "qty": { "type": "string" },
+                    "unit": { "type": "string" }
+                  },
+                  "required": ["name", "qty", "unit"]
+                }
+              }
+            },
+            "required": ["sectionName", "items"]
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "lesson_name", "ingredients", "steps"]
+    }
+  },
+  "firestore": {
+    "recipes": {
+      "schema": "Recipe",
+      "description": "Collection of all recipes in the application."
+    }
+  }
+}

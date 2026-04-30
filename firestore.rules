@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    // Recipe Validation
+    function isValidRecipe(data) {
+      return data.keys().hasAll(['title', 'lesson_name', 'ingredients', 'steps']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.lesson_name is string && data.lesson_name.size() <= 200 &&
+             data.ingredients is list && data.ingredients.size() <= 50 &&
+             data.steps is list && data.steps.size() <= 100;
+    }
+
+    // Recipes Collection
+    match /recipes/{recipeId} {
+      // For now, allowing public read for the recipe library
+      allow read: if true;
+      
+      // Allowing anyone to submit recipes (or could restrict to signed in users)
+      // Since the app didn't have auth, I'll allow creation for now but with strict validation
+      allow create: if isValidRecipe(incoming());
+      
+      // Restrict updates for now to avoid unauthorized tampering
+      allow update: if false; 
+      
+      allow delete: if false;
+    }
+  }
+}

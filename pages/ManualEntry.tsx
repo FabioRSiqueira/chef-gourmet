@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, Save, ArrowLeft, PlusCircle, ListOrdered, Utensils, X } from 'lucide-react';
-import { saveRecipes } from '../services/supabaseService';
+import { saveRecipes } from '../services/firebaseService';
 import { Recipe, IngredientSection, Ingredient } from '../types';
 
 export const ManualEntry: React.FC = () => {
