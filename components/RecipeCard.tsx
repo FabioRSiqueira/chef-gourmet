@@ -1,6 +1,7 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { Recipe } from '../types';
-import { ChefHat, Clock, BookOpen } from 'lucide-react';
+import { ChefHat, Clock, BookOpen, PenLine } from 'lucide-react';
 
 interface RecipeCardProps {
   recipe: Recipe;
@@ -17,8 +18,16 @@ export const RecipeCard: React.FC<RecipeCardProps> = ({ recipe, onClick }) => {
   return (
     <div 
       onClick={onClick}
-      className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer overflow-hidden border border-gray-100 flex flex-col h-full"
+      className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer overflow-hidden border border-gray-100 flex flex-col h-full relative group"
     >
+      <Link 
+        to={`/manual/${recipe.id}`}
+        onClick={(e) => e.stopPropagation()}
+        className="absolute top-2 right-2 z-20 p-2 bg-white/10 hover:bg-white/90 text-white hover:text-chef-red rounded-full opacity-0 group-hover:opacity-100 transition-all duration-200 backdrop-blur-sm"
+        title="Editar Receita"
+      >
+        <PenLine className="w-4 h-4" />
+      </Link>
       <div className="h-32 bg-chef-dark flex items-center justify-center relative">
         <ChefHat className="text-white/20 w-16 h-16 absolute" />
         <h3 className="text-white font-bold text-center px-4 z-10 line-clamp-2">

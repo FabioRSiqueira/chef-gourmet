@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, getDocs, query, orderBy, where, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, getDocs, doc, getDoc, updateDoc, deleteDoc, query, orderBy, where, serverTimestamp, Timestamp } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 import { Recipe } from '../types';
 
@@ -24,12 +24,13 @@ export const saveRecipes = async (recipes: Recipe[]): Promise<boolean> => {
   // 1. Try Firebase
   try {
     const recipesCollection = collection(db, COLLECTION_NAME);
-    const savePromises = recipes.map(recipe => 
-      addDoc(recipesCollection, {
-        ...recipe,
+    const savePromises = recipes.map(recipe => {
+      const { id, ...recipeData } = recipe; // Remove ID if present for new docs
+      return addDoc(recipesCollection, {
+        ...recipeData,
         created_at: serverTimestamp()
-      })
-    );
+      });
+    });
     await Promise.all(savePromises);
     savedToCloud = true;
   } catch (error) {
@@ -53,6 +54,87 @@ export const saveRecipes = async (recipes: Recipe[]): Promise<boolean> => {
   } catch (e) {
     console.error("Local storage failed:", e);
     return savedToCloud;
+  }
+};
+
+export const updateRecipe = async (id: string, recipe: Partial<Recipe>): Promise<boolean> => {
+  let updatedCloud = false;
+
+  // 1. Try Firebase
+  try {
+    const recipeDoc = doc(db, COLLECTION_NAME, id);
+    const { id: _, created_at, ...updateData } = recipe as any;
+    await updateDoc(recipeDoc, {
+      ...updateData,
+      updated_at: serverTimestamp()
+    });
+    updatedCloud = true;
+  } catch (error) {
+    console.error("Firebase update error:", error);
+    // If it fails on Firebase, it might be a local-only recipe, so we continue to localStorage
+  }
+
+  // 2. Update LocalStorage
+  try {
+    const existingStr = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (existingStr) {
+      const existing: Recipe[] = JSON.parse(existingStr);
+      const updated = existing.map(r => r.id === id ? { ...r, ...recipe } : r);
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+    }
+    return true;
+  } catch (e) {
+    console.error("Local storage update failed:", e);
+    return updatedCloud;
+  }
+};
+
+export const deleteRecipe = async (id: string): Promise<boolean> => {
+    try {
+        const recipeDoc = doc(db, COLLECTION_NAME, id);
+        await deleteDoc(recipeDoc);
+    } catch (e) {
+        console.error("Firebase delete failed:", e);
+    }
+
+    try {
+        const existingStr = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (existingStr) {
+            const existing: Recipe[] = JSON.parse(existingStr);
+            const updated = existing.filter(r => r.id !== id);
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+        }
+        return true;
+    } catch (e) {
+        console.error("Local storage delete failed:", e);
+        return false;
+    }
+}
+
+export const getRecipeById = async (id: string): Promise<Recipe | null> => {
+  // 1. Try Firebase
+  try {
+    const recipeDoc = doc(db, COLLECTION_NAME, id);
+    const docSnap = await getDoc(recipeDoc);
+    if (docSnap.exists()) {
+      const d = docSnap.data();
+      return {
+        ...d,
+        id: docSnap.id,
+        created_at: d.created_at instanceof Timestamp ? d.created_at.toDate().toISOString() : d.created_at
+      } as Recipe;
+    }
+  } catch (error) {
+    console.error("Firebase get error:", error);
+  }
+
+  // 2. Fallback to LocalStorage
+  try {
+    const existingStr = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const existing: Recipe[] = existingStr ? JSON.parse(existingStr) : [];
+    return existing.find(r => r.id === id) || null;
+  } catch (e) {
+    return null;
   }
 };
 

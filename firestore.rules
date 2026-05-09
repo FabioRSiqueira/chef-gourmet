@@ -37,10 +37,10 @@ service cloud.firestore {
       // Since the app didn't have auth, I'll allow creation for now but with strict validation
       allow create: if isValidRecipe(incoming());
       
-      // Restrict updates for now to avoid unauthorized tampering
-      allow update: if false; 
+      // Allow anyone to update for now (matching create logic)
+      allow update: if isValidRecipe(incoming()); 
       
-      allow delete: if false;
+      allow delete: if true; // Also allowing delete for completeness if needed later
     }
   }
 }

@@ -1,12 +1,15 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2, Save, ArrowLeft, PlusCircle, ListOrdered, Utensils, X } from 'lucide-react';
-import { saveRecipes } from '../services/firebaseService';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { Plus, Trash2, Save, ArrowLeft, PlusCircle, ListOrdered, Utensils, X, Loader2 } from 'lucide-react';
+import { saveRecipes, getRecipeById, updateRecipe, deleteRecipe } from '../services/firebaseService';
 import { Recipe, IngredientSection, Ingredient } from '../types';
 
 export const ManualEntry: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [isLoading, setIsLoading] = useState(!!id);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [recipe, setRecipe] = useState<Omit<Recipe, 'id' | 'created_at'>>({
@@ -20,6 +23,26 @@ export const ManualEntry: React.FC = () => {
     ],
     steps: ['']
   });
+
+  useEffect(() => {
+    const fetchRecipe = async () => {
+      if (!id) return;
+      try {
+        const data = await getRecipeById(id);
+        if (data) {
+          const { id: _, created_at: __, ...rest } = data;
+          setRecipe(rest);
+        } else {
+          setError('Receita não encontrada.');
+        }
+      } catch (err) {
+        setError('Erro ao carregar receita.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchRecipe();
+  }, [id]);
 
   const handleAddSection = () => {
     setRecipe(prev => ({
@@ -69,7 +92,7 @@ export const ManualEntry: React.FC = () => {
 
     try {
       // Clean up empty ingredients and steps
-      const cleanedRecipe: Recipe = {
+      const cleanedRecipeData = {
         ...recipe,
         ingredients: recipe.ingredients.map(section => ({
           ...section,
@@ -78,11 +101,15 @@ export const ManualEntry: React.FC = () => {
         steps: recipe.steps.filter(step => step.trim() !== '')
       };
 
-      if (cleanedRecipe.ingredients.length === 0 && cleanedRecipe.steps.length === 0) {
+      if (cleanedRecipeData.ingredients.length === 0 && cleanedRecipeData.steps.length === 0) {
         throw new Error('Adicione pelo menos alguns ingredientes ou passos.');
       }
 
-      await saveRecipes([cleanedRecipe]);
+      if (id) {
+        await updateRecipe(id, cleanedRecipeData);
+      } else {
+        await saveRecipes([cleanedRecipeData as Recipe]);
+      }
       navigate('/');
     } catch (err: any) {
       setError(err.message || 'Erro ao salvar a receita.');
@@ -90,6 +117,29 @@ export const ManualEntry: React.FC = () => {
       setIsSaving(false);
     }
   };
+
+  const handleDelete = async () => {
+    if (!id) return;
+    if (!window.confirm('Tem certeza que deseja excluir esta receita?')) return;
+
+    setIsDeleting(true);
+    try {
+      await deleteRecipe(id);
+      navigate('/');
+    } catch (err) {
+      setError('Erro ao excluir receita.');
+      setIsDeleting(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh]">
+        <Loader2 className="w-10 h-10 text-chef-red animate-spin mb-4" />
+        <p className="text-gray-500 font-medium">Carregando receita...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto pb-20">
@@ -101,19 +151,33 @@ export const ManualEntry: React.FC = () => {
           <ArrowLeft className="w-5 h-5" />
           <span>Voltar</span>
         </button>
-        <h1 className="text-3xl font-serif font-bold text-gray-900">Nova Receita Manual</h1>
-        <button
-          onClick={handleSave}
-          disabled={isSaving}
-          className="bg-chef-red text-white px-6 py-2 rounded-full font-bold hover:bg-red-700 transition-colors flex items-center gap-2 disabled:opacity-50"
-        >
-          {isSaving ? 'Salvando...' : (
-            <>
-              <Save className="w-4 h-4" />
-              <span>Salvar Receita</span>
-            </>
+        <h1 className="text-3xl font-serif font-bold text-gray-900">
+          {id ? 'Editar Receita' : 'Nova Receita Manual'}
+        </h1>
+        <div className="flex items-center gap-3">
+          {id && (
+            <button
+              onClick={handleDelete}
+              disabled={isDeleting || isSaving}
+              className="text-gray-400 hover:text-red-500 p-2 transition-colors disabled:opacity-50"
+              title="Excluir Receita"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
           )}
-        </button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving || isDeleting}
+            className="bg-chef-red text-white px-6 py-2 rounded-full font-bold hover:bg-red-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+          >
+            {isSaving ? 'Salvando...' : (
+              <>
+                <Save className="w-4 h-4" />
+                <span>{id ? 'Atualizar' : 'Salvar'}</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {error && (

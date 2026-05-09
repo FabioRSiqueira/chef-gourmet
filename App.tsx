@@ -78,6 +78,7 @@ const App: React.FC = () => {
           <Route path="/" element={<Library />} />
           <Route path="/upload" element={<Upload />} />
           <Route path="/manual" element={<ManualEntry />} />
+          <Route path="/manual/:id" element={<ManualEntry />} />
         </Routes>
       </Layout>
     </HashRouter>

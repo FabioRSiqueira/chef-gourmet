@@ -1,6 +1,7 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { Recipe } from '../types';
-import { X, Printer, ChefHat, Clock, Utensils } from 'lucide-react';
+import { X, Printer, ChefHat, Clock, Utensils, PenLine } from 'lucide-react';
 
 interface RecipeModalProps {
   recipe: Recipe | null;
@@ -36,6 +37,13 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({ recipe, onClose }) => 
           </div>
           
           <div className="flex items-center gap-2">
+             <Link 
+               to={`/manual/${recipe.id}`}
+               className="p-2 text-gray-400 hover:text-chef-red hover:bg-gray-100 rounded-full transition-colors"
+               title="Editar Receita"
+             >
+               <PenLine className="w-5 h-5" />
+             </Link>
              <button 
                onClick={() => window.print()}
                className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors hidden sm:block"
